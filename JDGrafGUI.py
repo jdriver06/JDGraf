@@ -5,7 +5,6 @@ from tkinter import filedialog
 import matplotlib
 matplotlib.use('TkAgg')
 
-from numpy import arange, sin, pi
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib import colors as mcolors
 # Implement the default mpl key bindings
@@ -18,45 +17,63 @@ import utchem_io_module
 import pandas as pd
 
 
+__version__ = '1.0.0'
+
+
 class JDGrafGUI(tk.Tk):
 
     def __init__(self):
         super(JDGrafGUI, self).__init__()
         self.data = pd.DataFrame(data=[], columns=[])
-        self.title('JDGraf')
+        self.title('JDGraf v{}'.format(__version__))
         self.geometry('800x800')
-        label = tk.Label(self, text="", cursor= "hand2", foreground= "black", font=('Arial 14',))
+        self.source_label = tk.Label(self, text="", cursor= "hand2", foreground= "black", font=('Arial 14',),
+                                     height=2, anchor='w')
         self.source_file = ''
-        label.bind("<Button-1>", self.source_select)
-        label.pack()
-        self.source_label = label
+        self.source_label.bind("<Button-1>", self.source_select)
+        self.source_label.bind("<Enter>", lambda _: self.source_color_config('blue'))
+        self.source_label.bind("<Leave>", lambda _: self.source_color_config('black'))
+        self.source_label.pack(side=tk.TOP, anchor='w', padx=10)
         frame = tk.Frame(self)
-        frame.pack()
-        listbox = tk.Listbox(frame, exportselection=False)
-        listbox.pack(side=tk.LEFT)
-        listbox.bind('<<ListboxSelect>>', self.update_x_sel)
-        listbox2 = tk.Listbox(frame, exportselection=False)
-        listbox2.pack(side=tk.LEFT)
-        listbox2.bind('<<ListboxSelect>>', self.update_y_sel)
-        listbox3 = tk.Listbox(frame, exportselection=False)
-        listbox3.pack(side=tk.LEFT)
+        frame.pack(pady=10)
+        x_frame = tk.Frame(frame)
+        x_frame.pack(side=tk.LEFT)
+        source_x_label = tk.Label(x_frame, text='X Variable:')
+        source_x_label.pack(side=tk.TOP)
+        self.source_listbox_x = tk.Listbox(x_frame, exportselection=False, selectbackground='black', height=10)
+        self.source_listbox_x.pack(side=tk.TOP)
+        y_frame = tk.Frame(frame)
+        y_frame.pack(side=tk.LEFT)
+        source_y_label = tk.Label(y_frame, text='Y Variable:')
+        source_y_label.pack(side=tk.TOP)
+        self.source_listbox_y = tk.Listbox(y_frame, exportselection=False, selectbackground='black', height=10)
+        self.source_listbox_y.pack(side=tk.TOP)
+        self.source_listbox_y.bind('<<ListboxSelect>>', self.source_y_select)
+        c_frame = tk.Frame(frame)
+        c_frame.pack(side=tk.LEFT)
+        source_c_label = tk.Label(c_frame, text='Color:')
+        source_c_label.pack(side=tk.TOP)
+        self.color_listbox = tk.Listbox(c_frame, exportselection=False, height=10)
+        self.color_listbox.pack(side=tk.TOP)
+        self.color_listbox.bind('<<ListboxSelect>>', self.update_select_background)
         for i, color in enumerate(mcolors.TABLEAU_COLORS.keys()):
-            listbox3.insert(i + 1, color[4:])
-            listbox3.itemconfig(i, {'fg': mcolors.TABLEAU_COLORS[color]})
+            self.color_listbox.insert(i + 1, color[4:])
+            self.color_listbox.itemconfig(i, {'fg': mcolors.TABLEAU_COLORS[color]})
         self.x_sel = -1
         self.y_sel = -1
         self.x_index = -1
         self.y_indexes = []
         self.lines = []
-        btn = tk.Button(frame, text='Plot', command=self.plot)
-        btn.pack(side=tk.LEFT)
-        btn2 = tk.Button(frame, text='Reload', command=self.reload)
-        btn2.pack(side=tk.LEFT)
-        btn3 = tk.Button(frame, text='Clear', command=self.clear_plot)
-        btn3.pack(side=tk.LEFT)
-        self.source_listbox_x = listbox
-        self.source_listbox_y = listbox2
-        self.color_listbox = listbox3
+        btn_frame = tk.Frame(frame)
+        btn_frame.pack(side=tk.TOP, pady=20)
+        btn = tk.Button(btn_frame, text='Plot Selected', command=self.plot, width=15)
+        btn.pack(side=tk.TOP)
+        self.remove_btn = tk.Button(btn_frame, text='Remove Selected', command=self.remove, width=15)
+        self.remove_btn.pack(side=tk.TOP)
+        btn2 = tk.Button(btn_frame, text='Reload All', command=self.reload, width=15)
+        btn2.pack(side=tk.TOP)
+        btn3 = tk.Button(btn_frame, text='Clear All', command=self.clear_plot, width=15)
+        btn3.pack(side=tk.TOP)
         self.plot_button = btn
         self.fig = Figure()
         self.canvas = FigureCanvasTkAgg(self.fig, master=self)
@@ -69,6 +86,9 @@ class JDGrafGUI(tk.Tk):
 
     def update_source_label(self):
         self.source_label.config(text='Source: {}'.format(self.source_file))
+
+    def source_color_config(self, color: str) -> None:
+        self.source_label.config(foreground=color)
 
     def source_select(self, _):
         self.source_file = filedialog.askopenfilename()
@@ -87,33 +107,50 @@ class JDGrafGUI(tk.Tk):
         for i, c in enumerate(items):
             listbox.insert(i + 1, c)
 
-    def update_x_sel(self, _):
-        sel = self.source_listbox_x.curselection()
-        if sel:
-            self.x_sel = sel[0]
+    @staticmethod
+    def get_sel(sel: tuple) -> int:
+        if not sel:
+            return -1
+        else:
+            return int(sel[0])
 
-    def update_y_sel(self, _):
-        sel = self.source_listbox_y.curselection()
-        if sel:
-            self.y_sel = sel[0]
+    def source_y_select(self, _):
+        j = JDGrafGUI.get_sel(self.source_listbox_y.curselection())
+        if j not in self.y_indexes:
+            return
+        ind = self.y_indexes.index(j)
+        l_color = self.lines[ind].get_color()
+        for k, color in enumerate(mcolors.TABLEAU_COLORS.values()):
+            if color == l_color:
+                self.color_listbox.select_clear(self.color_listbox.curselection()[0])
+                self.color_listbox.selection_set(k)
+                self.color_listbox.config(selectbackground=color)
+                break
 
-    def test(self):
-        t = arange(0.0, 3.0, 0.01)
-        s = sin(2 * pi * t)
+    def update_select_background(self, event: tk.Event):
+        if event.widget == self.color_listbox:
+            item = self.color_listbox.get(self.color_listbox.curselection())
+            color = mcolors.TABLEAU_COLORS['tab:{}'.format(item)]
+            self.color_listbox.config(selectbackground=color)
+            j = JDGrafGUI.get_sel(self.source_listbox_y.curselection())
 
-        self.subplot.plot(t, s)
+            if j == -1 or j not in self.y_indexes:
+                return
+
+            self.lines[self.y_indexes.index(j)].set_color(color)
+            self.set_legend()
+            self.canvas.draw()
 
     def plot(self):
 
-        i = self.x_sel
-        j = self.y_sel
-        k = self.color_listbox.curselection()
-        if not k:
-            k = -1
-        else:
-            k = k[0]
+        i = JDGrafGUI.get_sel(self.source_listbox_x.curselection())
+        j = JDGrafGUI.get_sel(self.source_listbox_y.curselection())
+        k = JDGrafGUI.get_sel(self.color_listbox.curselection())
 
         if i == -1 or j == -1 or k == -1:
+            return
+
+        if j in self.y_indexes:
             return
 
         self.x_index = i
@@ -144,7 +181,22 @@ class JDGrafGUI(tk.Tk):
         self.subplot.autoscale()
         self.canvas.draw()
 
+    def remove(self) -> None:
+
+        if not self.y_indexes:
+            return
+        elif len(self.y_indexes) == 1:
+            self.clear_plot()
+            return
+
+        j = JDGrafGUI.get_sel(self.source_listbox_y.curselection())
+        self.subplot.lines.pop(self.y_indexes.index(j))
+        self.y_indexes.remove(j)
+        self.set_legend()
+        self.canvas.draw()
+
     def clear_plot(self):
+
         self.subplot.clear()
         self.x_index = -1
         self.y_indexes = []
@@ -155,9 +207,6 @@ class JDGrafGUI(tk.Tk):
 
 def main():
     root = JDGrafGUI()
-    # root.title('root')
-    # label = tk.Label(root, text="Hello, Tkinter!")
-    # label.pack()
     root.mainloop()
 
 if __name__ == "__main__":
